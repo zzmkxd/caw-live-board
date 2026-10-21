@@ -1,0 +1,78 @@
+{
+  "name": "caw-live-board",
+  "displayName": "CAW Live Board",
+  "description": "Read-only real-time multi-harness session board for Cursor and Claude Code transcripts",
+  "version": "0.2.0",
+  "publisher": "ourten",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:caw.sessions"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "caw",
+          "title": "CAW Live",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "caw": [
+        {
+          "id": "caw.sessions",
+          "name": "Sessions"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "caw.refresh",
+        "title": "Refresh Sessions",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "caw.openSession",
+        "title": "Open Agent Workflow"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "caw.refresh",
+          "when": "view == caw.sessions",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "caw.openSession",
+          "when": "view == caw.sessions && viewItem == session"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./",
+    "package": "npm run compile && vsce package --no-dependencies --allow-missing-repository",
+    "smoke": "npm run compile && node scripts/smoke.mjs",
+    "smoke:live": "npm run compile && node scripts/smoke-live.mjs",
+    "board": "npm run compile && node scripts/board/index.mjs",
+    "install:cursor": "powershell -NoProfile -File scripts/install-cursor.ps1",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "typescript": "^5.6.3"
+  }
+}

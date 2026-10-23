@@ -9,6 +9,7 @@ import type {
   UserTurn,
   WorkflowSession,
 } from "../parser/types";
+import { applySessionModels } from "../parser/sessionModels";
 import type { ProjectGroup } from "../scanSessions";
 
 const HEAD_BYTES = 64 * 1024;
@@ -33,8 +34,21 @@ interface ClaudeLine {
   message?: {
     role?: string;
     content?: unknown;
+    model?: string;
   };
   content?: unknown;
+}
+
+function claudeModelId(obj: ClaudeLine): string | undefined {
+  const raw = obj.message?.model;
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const m = raw.trim();
+  if (!m || m === "<synthetic>") {
+    return undefined;
+  }
+  return m;
 }
 
 export function claudeProjectsRoot(): string {
@@ -353,15 +367,20 @@ export function parseClaudeTranscriptFile(filePath: string): WorkflowSession {
       const blocks = lineBlocks(obj);
       const text = visibleText(blocks);
       const stepId = `${current.id}-step-${stepIndex}`;
+      const modelId = claudeModelId(obj);
       const step: ModelStep = {
         id: stepId,
         index: stepIndex,
         textPreview: truncate(text, 160),
         text,
         tools: toolCards(blocks, stepId),
+        modelId,
       };
       if (!step.text && step.tools.length === 0) {
         continue;
+      }
+      if (modelId) {
+        current.modelId = modelId;
       }
       current.steps.push(step);
       stepIndex += 1;
@@ -378,6 +397,7 @@ export function parseClaudeTranscriptFile(filePath: string): WorkflowSession {
     if (turns.length === 0) {
       return { summary, turns: [emptyTurn(summary)] };
     }
+    applySessionModels(summary, turns);
     return { summary, turns };
   } catch {
     return { summary, turns: [emptyTurn(summary)] };

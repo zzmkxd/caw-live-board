@@ -9,6 +9,7 @@ import type {
   UserTurn,
   WorkflowSession,
 } from "../parser/types";
+import { applySessionModels } from "../parser/sessionModels";
 import type { ProjectGroup } from "../scanSessions";
 import { decompressDshLog } from "./dshZstd";
 
@@ -225,7 +226,16 @@ export function parseDshTranscriptFile(filePath: string): WorkflowSession {
   const turns: UserTurn[] = [];
   let current: UserTurn | undefined;
   let stepIndex = 0;
+  let pendingModel: string | undefined;
   const pendingTools = new Map<string, ToolCallCard>();
+
+  const takeModel = (raw: unknown): string | undefined => {
+    if (typeof raw !== "string") {
+      return undefined;
+    }
+    const m = raw.trim();
+    return m ? m : undefined;
+  };
 
   const ensureTurn = (time?: number): UserTurn => {
     if (!current) {
@@ -236,6 +246,7 @@ export function parseDshTranscriptFile(filePath: string): WorkflowSession {
         queryPreview: "",
         queryText: "",
         steps: [],
+        modelId: pendingModel,
       };
       turns.push(current);
       stepIndex = 0;
@@ -261,6 +272,7 @@ export function parseDshTranscriptFile(filePath: string): WorkflowSession {
       continue;
     }
     if (line.type === "turn/start") {
+      pendingModel = undefined;
       current = {
         id: `dsh-turn-${turns.length}`,
         index: turns.length,
@@ -272,6 +284,29 @@ export function parseDshTranscriptFile(filePath: string): WorkflowSession {
       turns.push(current);
       stepIndex = 0;
       pendingTools.clear();
+      continue;
+    }
+    if (line.type === "request/header") {
+      const header = line.data?.header as
+        | { config?: { model?: unknown } }
+        | undefined;
+      const m = takeModel(header?.config?.model);
+      if (m) {
+        pendingModel = m;
+        if (current) {
+          current.modelId = m;
+        }
+      }
+      continue;
+    }
+    if (line.type === "request/context") {
+      const m = takeModel(line.data?.model);
+      if (m) {
+        pendingModel = m;
+        if (current) {
+          current.modelId = m;
+        }
+      }
       continue;
     }
     if (line.type === "user/message") {
@@ -326,7 +361,11 @@ export function parseDshTranscriptFile(filePath: string): WorkflowSession {
         textPreview: truncate(text, 160),
         text,
         tools,
+        modelId: pendingModel || turn.modelId,
       };
+      if (step.modelId) {
+        turn.modelId = step.modelId;
+      }
       turn.steps.push(step);
       stepIndex += 1;
       continue;
@@ -348,6 +387,7 @@ export function parseDshTranscriptFile(filePath: string): WorkflowSession {
           textPreview: "",
           text: "",
           tools: [],
+          modelId: pendingModel || turn.modelId,
         };
         turn.steps.push(step);
         stepIndex += 1;
@@ -411,6 +451,7 @@ export function parseDshTranscriptFile(filePath: string): WorkflowSession {
     harness: "dsh",
     liveStatus: liveStatusFromMtime(st.mtimeMs),
   };
+  applySessionModels(summary, turns);
 
   return { summary, turns };
 }

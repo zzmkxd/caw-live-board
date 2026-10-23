@@ -11,6 +11,9 @@
   - 巨石 `board-server.mjs` 删除 → `scripts/board/{index,httpApp,page,paths,watch}.mjs`
   - 前端 → `media/board/{app.js,board.css}`；正在进行中以 API 为唯一过滤源
   - 原目录 `Desktop\caw-live-board` 未改；本目录 `npm run board` → :3922
+- 2026-10-22：Insight / turn-list 滚动与 Insight 时间线
+  - Board A 点选 turn：`keepTurnScroll` 保留左侧列表滚动；`skipInsight` 避免 Insight 复位
+  - Insight：会话摘要新区（file/preview/top tools）+ 可收缩 turn 卡片时间线（竖线、无时间戳、▸ 展开 model/tool）
 - 2026-10-22：**解耦重构 done**（见 `REFACTOR.md`）
   - [x] `scripts/board/{paths,watch,httpApp,page,index}.mjs` 拆分原 `board-server.mjs`
   - [x] `media/board/{board.css,app.js}` 抽出内联样式与 IIFE
@@ -18,3 +21,9 @@
   - [x] `package.json` board → `node scripts/board/index.mjs`；smoke 指向 `scripts/board/`
   - [x] 删除 `scripts/board-server.mjs`
   - [x] 验收：`npm run compile` + `node scripts/smoke-live.mjs` + `npm run board`（3922）
+- 2026-10-23：**Insight 模型色点 + 3922-only 桌面快捷方式**
+  - P0：Insight 去掉 file/preview；timeline kid `model ·` → `step ·`
+  - P1：`primaryModel` / turn·step `modelId`（DSH request/header|context；Claude `message.model` 跳过 synthetic；Cursor → Auto）
+  - Timeline 左点按 LLM 上色；Session 行 `model` + 图例
+  - 停掉 :3921；桌面 `CAW Live Board (3922).lnk` → `scripts/launch-board.ps1`
+  - 验收：`npm run smoke:live` + API 探针 DSH multi (pro/flash) + Cursor Auto + UI 静态检查 ACCEPT_OK

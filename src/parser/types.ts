@@ -17,6 +17,15 @@ export interface SessionSummary {
   turnCount: number;
   harness: HarnessId;
   liveStatus: LiveStatus;
+  /**
+   * Display model for Insight: last resolved modelId when available,
+   * else selectionFallback (e.g. Cursor Auto).
+   */
+  primaryModel?: string;
+  /** User-facing selection label (Auto / default). Not the routed slug. */
+  modelSelection?: string;
+  /** True when session saw more than one distinct modelId. */
+  modelMulti?: boolean;
 }
 
 /** One tool_use block inside an assistant step. */
@@ -37,6 +46,8 @@ export interface ModelStep {
   /** Full assistant text. Board clamps it; tree rows keep textPreview. */
   text?: string;
   tools: ToolCallCard[];
+  /** Resolved LLM id for this assistant step (not the UI "Model" badge). */
+  modelId?: string;
 }
 
 /** User message + following assistant steps until the next user message. */
@@ -49,6 +60,8 @@ export interface UserTurn {
   /** Full user text for detail pane. */
   queryText: string;
   steps: ModelStep[];
+  /** Last known resolved LLM id within this turn (DSH/Claude). */
+  modelId?: string;
 }
 
 /** Fully parsed workflow for the webview. */

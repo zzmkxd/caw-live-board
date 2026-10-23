@@ -40,9 +40,9 @@ export function pageHtml() {
     <aside id="insight">
       <div class="insight-head">
         <h2>Insight</h2>
-        <span class="insight-sub">Board B · 占位（旧版 Board A 不变）</span>
+        <span class="insight-sub">Board B · 会话摘要 + 可收缩时间线</span>
       </div>
-      <div id="insight-body"><p class="empty">选中会话后显示摘要与活动轨。</p></div>
+      <div id="insight-body"><p class="empty">选中会话后显示摘要与时间线。</p></div>
     </aside>
   </div>
   <button type="button" id="btn-theme">浅色</button>

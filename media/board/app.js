@@ -22,6 +22,8 @@
     let turnsW = 260;
     const openDrives = new Set();
     const openDirs = new Set();
+    /** Insight timeline: which turn cards are expanded (ids). */
+    const insightOpenTurns = new Set();
 
     function esc(s) {
       return String(s ?? "")
@@ -69,7 +71,7 @@
       if (idx < 0) idx = 0;
       idx = Math.max(0, Math.min(turns.length - 1, idx + delta));
       selectedTurnId = turns[idx].id;
-      renderBoard();
+      renderBoard({ keepTurnScroll: true, skipInsight: true });
     }
     function renderCards(active) {
       if (!active) return '<p class="empty">Select a turn.</p>';
@@ -141,6 +143,12 @@
         app.innerHTML = '<p class="loading">Pick a session on the left.</p>';
         return;
       }
+      const keepTurnScroll = !!(opts && opts.keepTurnScroll);
+      const prevTurnList = app.querySelector(".turn-list");
+      const turnScroll = keepTurnScroll && prevTurnList ? prevTurnList.scrollTop : 0;
+      const prevChain = app.querySelector(".chain");
+      const chainScroll = keepTurnScroll && prevChain ? prevChain.scrollTop : 0;
+
       const summary = session.summary || {};
       const turns = session.turns || [];
       const { steps: stepCount, tools: toolCount } = countSteps(turns);
@@ -164,19 +172,82 @@
         ${banner}<div class="layout${turnsCollapsed ? " turns-collapsed" : ""}"><aside class="turn-list">${turnsBtn}${turnListHtml || '<p class="empty">No turns</p>'}</aside>
         <div class="turn-split split-v" title="拖动调整宽度"></div>
         <main class="detail"><div class="chain">${renderCards(active)}</div></main></div>`;
-      // Insight 重绘会重置其滚动条；从 Insight 点选 turn 时跳过重绘，保留滚动位置
+      if (keepTurnScroll) {
+        const list = app.querySelector(".turn-list");
+        if (list) list.scrollTop = turnScroll;
+        const chain = app.querySelector(".chain");
+        if (chain) chain.scrollTop = chainScroll;
+      }
+      // Insight 重绘会重置其滚动条；点选 turn 时跳过重绘
       if (!(opts && opts.skipInsight)) renderInsight();
+      else syncInsightActiveOnly();
+    }
+    function syncInsightActiveOnly() {
+      const body = document.getElementById("insight-body");
+      if (!body) return;
+      for (const card of body.querySelectorAll(".tl-card")) {
+        card.classList.toggle("active", card.getAttribute("data-turn") === selectedTurnId);
+      }
     }
     function harnessOf(s) {
       const h = s && s.harness;
       if (h === "claude" || h === "dsh" || h === "cursor") return h;
       return "cursor";
     }
+    function toolArgLine(tool) {
+      try {
+        const o = JSON.parse(String(tool.inputJson || "{}"));
+        const keys = Object.keys(o || {});
+        if (keys.length) {
+          const k0 = keys[0];
+          return k0 + "=" + truncateRail(String(o[k0]), 48);
+        }
+      } catch {
+        /* fall through */
+      }
+      return truncateRail(String(tool.inputJson || ""), 48);
+    }
+    function collectToolNames(turns) {
+      const map = new Map();
+      for (const t of turns || []) {
+        for (const step of t.steps || []) {
+          for (const tool of step.tools || []) {
+            const n = tool.name || "?";
+            map.set(n, (map.get(n) || 0) + 1);
+          }
+        }
+      }
+      return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+    }
+    function modelDotColor(id) {
+      if (!id) return "#9ca3af";
+      const s = String(id).toLowerCase();
+      if (s === "auto" || s === "default") return "#64748b";
+      if (s.includes("flash") || s.includes("composer")) return "#22c55e";
+      if (s.includes("pro") && s.includes("deepseek")) return "#14b8a6";
+      if (s.includes("deepseek")) return "#0d9488";
+      if (s.includes("opus") || s.includes("sonnet") || s.includes("gpt") || s.includes("claude")) {
+        return "#f97316";
+      }
+      let h = 0;
+      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+      return "hsl(" + (h % 360) + " 55% 48%)";
+    }
+    function turnModelId(t) {
+      if (t && t.modelId) return t.modelId;
+      const steps = (t && t.steps) || [];
+      for (let i = steps.length - 1; i >= 0; i--) {
+        if (steps[i].modelId) return steps[i].modelId;
+      }
+      return "";
+    }
     function renderInsight() {
       const body = document.getElementById("insight-body");
+      const panel = document.getElementById("insight");
       if (!body) return;
+      const scrollY = panel ? panel.scrollTop : 0;
       if (!session) {
-        body.innerHTML = '<p class="empty">选中会话后显示摘要与活动轨。</p>';
+        body.innerHTML = '<p class="empty">选中会话后显示会话摘要与可收缩时间线。</p>';
         return;
       }
       const summary = session.summary || {};
@@ -184,69 +255,70 @@
       const { steps: stepCount, tools: toolCount } = countSteps(turns);
       const h = harnessOf(summary);
       const st = statusOf(summary);
-      const events = [];
+      const topTools = collectToolNames(turns);
+      const primary =
+        summary.primaryModel ||
+        summary.modelSelection ||
+        (h === "cursor" ? "Auto" : "");
+      const modelLabel = primary
+        ? primary + (summary.modelMulti ? " · 多模型" : "")
+        : "unknown";
+      const modelColor = modelDotColor(primary || "unknown");
+
+      let tl = "";
       for (const t of turns) {
-        events.push({
-          kind: "user",
-          label: "Turn #" + (t.index + 1),
-          detail: t.queryPreview || t.queryText || "",
-          turnId: t.id,
-        });
+        const tools = turnToolCount(t);
+        const steps = (t.steps || []).length;
+        const open = insightOpenTurns.has(t.id);
+        const activeCls = t.id === selectedTurnId ? " active" : "";
+        const mid = turnModelId(t) || (h === "cursor" ? "Auto" : "");
+        const dot = modelDotColor(mid || "unknown");
+        let kids = "";
         for (const step of t.steps || []) {
-          if (step.textPreview || step.text) {
-            events.push({
-              kind: "model",
-              label: "model · step " + (step.index + 1),
-              detail: step.textPreview || step.text || "",
-              turnId: t.id,
-            });
+          const modelText = step.textPreview || step.text || "";
+          if (modelText) {
+            kids += `<div class="tl-kid step"><span class="rail-dot step"></span><div><b>step · ${esc(String(step.index + 1))}</b><div class="insight-sub">${esc(truncateRail(modelText, 100))}</div></div></div>`;
           }
           for (const tool of step.tools || []) {
-            let argLine = "";
-            try {
-              const o = JSON.parse(String(tool.inputJson || "{}"));
-              const keys = Object.keys(o || {});
-              if (keys.length) {
-                const k0 = keys[0];
-                argLine = k0 + "=" + truncateRail(String(o[k0]), 48);
-              }
-            } catch {
-              argLine = truncateRail(String(tool.inputJson || ""), 48);
-            }
-            events.push({
-              kind: "tool",
-              label: "tool · " + (tool.name || "?"),
-              detail: argLine || (tool.resultPreview ? "result: " + truncateRail(tool.resultPreview, 64) : ""),
-              turnId: t.id,
-            });
+            const detail = toolArgLine(tool) || (tool.resultPreview ? "result: " + truncateRail(tool.resultPreview, 64) : "");
+            kids += `<div class="tl-kid tool"><span class="rail-dot tool"></span><div><b>${esc(tool.name || "?")}</b><div class="insight-sub">${esc(detail)}</div></div></div>`;
           }
         }
+        tl += `<div class="tl-card${activeCls}" data-turn="${esc(t.id)}" data-open="${open ? "1" : "0"}" data-model="${esc(mid || "unknown")}" style="--llm-dot:${esc(dot)}">
+          <div class="tl-head">
+            <button type="button" class="twisty" data-action="toggle-insight-turn" data-turn="${esc(t.id)}" aria-label="展开">▸</button>
+            <button type="button" class="tl-jump" data-action="select-turn" data-turn="${esc(t.id)}">
+              <b>Turn #${esc(String(t.index + 1))}</b>
+              <span class="tool-badge">${esc(String(steps))}s / ${esc(String(tools))}t</span>
+            </button>
+          </div>
+          <div class="tl-preview">${esc(truncateRail(t.queryPreview || t.queryText || "", 160))}</div>
+          <div class="tl-kids">${kids || '<p class="insight-sub">无 step/tool</p>'}</div>
+        </div>`;
       }
-      const shown = events.slice(0, 80);
-      let rail = shown.map((ev) => {
-        const jump = ev.turnId
-          ? ` data-action="select-turn" data-turn="${esc(ev.turnId)}"`
-          : "";
-        return `<button type="button" class="rail-item"${jump}><span class="rail-dot ${esc(ev.kind)}"></span><div><b>${esc(ev.label)}</b><div class="insight-sub">${esc(truncateRail(ev.detail, 120))}</div></div></button>`;
-      }).join("");
-      if (events.length > shown.length) {
-        rail += `<p class="insight-sub">… 另有 ${events.length - shown.length} 条未展开</p>`;
-      }
+
+      const toolBits = topTools.length
+        ? topTools.map(([n, c]) => `${esc(n)}×${c}`).join(" · ")
+        : "—";
+
       body.innerHTML = `
-        <div class="insight-card"><h3>Session</h3>
+        <div class="insight-card insight-session"><h3>Session · 新分区</h3>
           <div class="insight-kv">
             <span>harness</span><span><span class="harness-badge harness-${h}">${esc(h)}</span></span>
             <span>status</span><span>${esc(st)}</span>
             <span>project</span><span>${esc(summary.projectLabel || "")}</span>
             <span>id</span><span class="sid">${esc(summary.id || "")}</span>
+            <span>model</span><span class="insight-model"><span class="model-swatch" style="background:${esc(modelColor)}"></span>${esc(modelLabel)}</span>
             <span>counts</span><span>${esc(String(turns.length))} turns · ${esc(String(stepCount))} steps · ${esc(String(toolCount))} tools</span>
-            <span>events</span><span>${esc(String(events.length))} on rail</span>
+            <span>top tools</span><span>${toolBits}</span>
           </div>
         </div>
-        <div class="insight-card"><h3>Activity timeline</h3>
-          <p class="insight-sub" style="margin:0 0 8px">点击条目可跳到对应 turn（Board A）</p>
-          <div class="rail">${rail || '<p class="empty">No events</p>'}</div>
+        <div class="insight-card"><h3>Timeline</h3>
+          <p class="insight-sub" style="margin:0 0 8px">小卡片=turn（左点=LLM）；▸ 展开 step/tool；点标题跳 Board A</p>
+          <p class="insight-legend"><span><i style="background:#64748b"></i>Auto</span><span><i style="background:#14b8a6"></i>pro</span><span><i style="background:#22c55e"></i>flash</span><span><i style="background:#9ca3af"></i>unknown</span></p>
+          <div class="tl">${tl || '<p class="empty">No turns</p>'}</div>
         </div>`;
+      if (panel) panel.scrollTop = scrollY;
     }
     function truncateRail(s, n) {
       const t = String(s || "").replace(/\s+/g, " ").trim();
@@ -391,7 +463,10 @@
       session = data.session;
       if (keepTurn && (session.turns || []).some((t) => t.id === keepTurn)) selectedTurnId = keepTurn;
       else selectedTurnId = null;
-      if (!keepTurn) bannerDismissed = false;
+      if (!keepTurn) {
+        bannerDismissed = false;
+        insightOpenTurns.clear();
+      }
       renderBoard();
     }
     function connectEvents() {
@@ -451,16 +526,33 @@
       const el = e.target.closest("[data-action]");
       if (!el) return;
       const action = el.getAttribute("data-action");
+      if (action === "toggle-insight-turn") {
+        e.preventDefault();
+        e.stopPropagation();
+        const tid = el.getAttribute("data-turn");
+        if (!tid) return;
+        if (insightOpenTurns.has(tid)) insightOpenTurns.delete(tid);
+        else insightOpenTurns.add(tid);
+        const card = el.closest(".tl-card");
+        if (card) {
+          card.setAttribute("data-open", insightOpenTurns.has(tid) ? "1" : "0");
+        }
+        return;
+      }
       if (action === "select-turn") {
         selectedTurnId = el.getAttribute("data-turn");
-        renderBoard({ skipInsight: true });
+        renderBoard({ skipInsight: true, keepTurnScroll: true });
       }
     });
     app.addEventListener("click", (e) => {
       const el = e.target.closest("[data-action]");
       if (!el) return;
       const action = el.getAttribute("data-action");
-      if (action === "select-turn") { selectedTurnId = el.getAttribute("data-turn"); renderBoard(); }
+      if (action === "select-turn") {
+        selectedTurnId = el.getAttribute("data-turn");
+        renderBoard({ keepTurnScroll: true, skipInsight: true });
+        return;
+      }
       if (action === "toggle-turns") { turnsCollapsed = !turnsCollapsed; renderBoard(); }
       if (action === "toggle-tool") {
         const card = el.closest(".card-tool");

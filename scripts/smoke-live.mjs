@@ -140,6 +140,103 @@ if (!serverSrc.includes("3922")) {
   console.error("FAIL: default port 3922 missing from scripts/board/");
   process.exit(1);
 }
+if (serverSrc.includes(">file</span>") || /insight-kv[\s\S]*?<span>file<\/span>/.test(serverSrc)) {
+  // Insight Session must not show file/preview rows (P0).
+  const appJs = fs.readFileSync(path.join(root, "media", "board", "app.js"), "utf8");
+  if (appJs.includes("<span>file</span>") || appJs.includes("<span>preview</span>")) {
+    console.error("FAIL: Insight Session still renders file/preview KV");
+    process.exit(1);
+  }
+}
+{
+  const appJs = fs.readFileSync(path.join(root, "media", "board", "app.js"), "utf8");
+  if (!appJs.includes("step ·") || appJs.includes("model · ${")) {
+    console.error("FAIL: Insight timeline should label assistant kids as step · n");
+    process.exit(1);
+  }
+  if (!appJs.includes("insight-model") || !appJs.includes("modelDotColor")) {
+    console.error("FAIL: Insight model swatch / color helper missing");
+    process.exit(1);
+  }
+}
+{
+  const { parseDshTranscriptFile, dshSessionsRoot } = require("../dist/harness/dshScan.js");
+  const { parseClaudeTranscriptFile, claudeProjectsRoot } = require("../dist/harness/claudeScan.js");
+  const fs2 = fs;
+  const dshRoot = dshSessionsRoot();
+  const dshCandidates = [];
+  function walk(dir, depth) {
+    if (depth > 6) return;
+    let ents;
+    try {
+      ents = fs2.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of ents) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p, depth + 1);
+      else if (/^session(?:\.v\d+)?\.jsonl(\.zstd)?$/i.test(e.name)) {
+        try {
+          dshCandidates.push({ p, size: fs2.statSync(p).size });
+        } catch {
+          /* skip */
+        }
+      }
+    }
+  }
+  if (fs2.existsSync(dshRoot)) walk(dshRoot, 0);
+  dshCandidates.sort((a, b) => b.size - a.size);
+  const dshFile = dshCandidates[0]?.p;
+  if (dshFile) {
+    const sess = parseDshTranscriptFile(dshFile);
+    if (!sess.summary.primaryModel) {
+      console.error("FAIL: DSH session missing primaryModel", dshFile);
+      process.exit(1);
+    }
+    const withModel = (sess.turns || []).filter((t) => t.modelId);
+    if (!withModel.length) {
+      console.error("FAIL: DSH turns missing modelId", dshFile);
+      process.exit(1);
+    }
+  }
+  const claudeRoot = claudeProjectsRoot();
+  const claudeCandidates = [];
+  function walkC(dir, depth) {
+    if (depth > 4) return;
+    let ents;
+    try {
+      ents = fs2.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of ents) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walkC(p, depth + 1);
+      else if (e.name.endsWith(".jsonl")) {
+        try {
+          claudeCandidates.push({ p, size: fs2.statSync(p).size });
+        } catch {
+          /* skip */
+        }
+      }
+    }
+  }
+  if (fs2.existsSync(claudeRoot)) walkC(claudeRoot, 0);
+  claudeCandidates.sort((a, b) => b.size - a.size);
+  const claudeFile = claudeCandidates[0]?.p;
+  if (claudeFile) {
+    const sess = parseClaudeTranscriptFile(claudeFile);
+    // Some tiny/synthetic-only journals may lack models; only assert when data exists.
+    const hasModelField = (sess.turns || []).some(
+      (t) => t.modelId || (t.steps || []).some((s) => s.modelId)
+    );
+    if (hasModelField && !sess.summary.primaryModel) {
+      console.error("FAIL: Claude session has step models but no primaryModel", claudeFile);
+      process.exit(1);
+    }
+  }
+}
 
 const cursorSessions = cursorGroups.reduce((n, g) => n + (g.sessions ? g.sessions.length : 0), 0);
 const claudeSessions = claudeGroups.reduce((n, g) => n + (g.sessions ? g.sessions.length : 0), 0);

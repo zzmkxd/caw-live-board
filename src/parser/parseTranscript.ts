@@ -8,6 +8,7 @@ import type {
   UserTurn,
   WorkflowSession,
 } from "./types";
+import { applySessionModels } from "./sessionModels";
 
 interface ContentBlock {
   type?: string;
@@ -211,6 +212,8 @@ export function parseTranscriptText(raw: string, filePath: string): WorkflowSess
     harness: "cursor",
     liveStatus: liveStatusFromMtime(mtimeMs),
   };
+  // Transcript JSONL has no per-turn routed model; label selection as Auto.
+  applySessionModels(summary, turns, { selectionFallback: "Auto" });
 
   return { summary, turns };
 }

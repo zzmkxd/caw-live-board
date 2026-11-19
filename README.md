@@ -15,6 +15,9 @@ VS Code / Cursor 活动栏扩展仍是较简单的侧栏，不含浏览器实时
 ## 预览
 <img width="2120" height="1107" alt="image" src="https://github.com/user-attachments/assets/b80895a7-280b-4cb7-800c-02d1176f9a74" />
 
+<img width="2115" height="1107" alt="image" src="https://github.com/user-attachments/assets/3983b20d-d939-48e4-b67c-34930091473e" />
+
+
 ## 环境
 
 - Node.js **22+**（dsh 的 zstd 需要 `zlib.zstdDecompressSync`）

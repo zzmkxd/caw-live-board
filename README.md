@@ -12,6 +12,8 @@
 - 盘符/目录树、折叠、拖宽、浅深色、完整 session id
 
 VS Code / Cursor 活动栏扩展仍是较简单的侧栏，不含浏览器实时与多 harness。
+## 预览
+<img width="2120" height="1107" alt="image" src="https://github.com/user-attachments/assets/b80895a7-280b-4cb7-800c-02d1176f9a74" />
 
 ## 环境
 
